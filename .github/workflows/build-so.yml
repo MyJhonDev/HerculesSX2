@@ -20,11 +20,26 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # Inicializa submódulos aninhados que o checkout recursivo pode ter deixado vazios.
-      - name: Inicializar submódulos faltando
+      # Inicializa submódulos e corrige dependências que às vezes vêm vazias no GitHub Actions.
+      - name: Inicializar submódulos e corrigir dependências
         run: |
+          git submodule sync --recursive
           git submodule update --init --recursive --depth=1
-          cd 3rdparty/cpuinfo && git submodule update --init --recursive
+
+          if [ -d "3rdparty/cpuinfo" ]; then
+            cd 3rdparty/cpuinfo
+            git submodule sync --recursive || true
+            git submodule update --init --recursive --depth=1 || true
+            cd ../..
+          fi
+
+          if [ ! -d "3rdparty/cpuinfo/deps/clog" ]; then
+            mkdir -p 3rdparty/cpuinfo/deps
+            git clone --depth 1 https://github.com/pytorch/cpuinfo.git /tmp/cpuinfo-full
+            cp -a /tmp/cpuinfo-full/deps/clog 3rdparty/cpuinfo/deps/clog
+          fi
+
+          ls -la 3rdparty/cpuinfo/deps/clog
 
       # Reaproveita cache do Gradle e da pasta de build nativo para acelerar builds futuros.
       - name: Restaurar cache do build
@@ -44,7 +59,7 @@ jobs:
             cmake ninja-build clang llvm \
             libsdl2-dev libpng-dev liblzma-dev \
             libgl1-mesa-dev libgles2-mesa-dev \
-            zip unzip curl wget
+            zip unzip curl wget file
 
       # Baixa e registra o Android NDK r27c usado na compilação Android arm64.
       - name: Baixar Android NDK r27c
@@ -56,7 +71,8 @@ jobs:
       # Configura o CMake para compilar usando toolchain do Android e gerar binário arm64-v8a.
       - name: Configurar CMake Android
         run: |
-          mkdir -p build-android && cd build-android
+          mkdir -p build-android
+          cd build-android
           cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
@@ -67,21 +83,39 @@ jobs:
             -GNinja \
             ..
 
+      # Lista os alvos disponíveis para facilitar debug caso o alvo emucore tenha outro nome.
+      - name: Listar alvos do Ninja
+        run: |
+          cd build-android
+          ninja -t targets | grep -i emu || true
+          ninja -t targets | grep -i pcsx || true
+
       # Compila somente o alvo emucore, que deve gerar o arquivo libemucore.so.
       - name: Compilar libemucore.so
         run: |
-          cd build-android && ninja -j$(nproc) emucore
+          cd build-android
+          ninja -j$(nproc) emucore
 
-      # Confere se o arquivo final existe e mostra informações básicas do binário gerado.
-      - name: Verificar arquivo gerado
+      # Procura o libemucore.so mesmo se o caminho final mudar dentro do repositório.
+      - name: Localizar libemucore.so
         run: |
-          ls -lh build-android/pcsx2/libemucore.so
-          file build-android/pcsx2/libemucore.so
+          find build-android -name "libemucore.so" -type f -print
+          SO_PATH=$(find build-android -name "libemucore.so" -type f | head -n 1)
+
+          if [ -z "$SO_PATH" ]; then
+            echo "libemucore.so não foi encontrado."
+            exit 1
+          fi
+
+          mkdir -p artifact
+          cp "$SO_PATH" artifact/libemucore.so
+          ls -lh artifact/libemucore.so
+          file artifact/libemucore.so
 
       # Envia o libemucore.so como artifact para baixar pelo navegador do celular.
       - name: Enviar artifact do libemucore.so
         uses: actions/upload-artifact@v4
         with:
           name: libemucore-arm64-v8a
-          path: build-android/pcsx2/libemucore.so
+          path: artifact/libemucore.so
           retention-days: 7
