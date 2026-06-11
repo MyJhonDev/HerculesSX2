@@ -71,6 +71,7 @@ jobs:
       # Configura o CMake para compilar usando toolchain do Android e gerar binário arm64-v8a.
       - name: Configurar CMake Android
         run: |
+          rm -rf build-android
           mkdir -p build-android
           cd build-android
           cmake \
@@ -83,18 +84,29 @@ jobs:
             -GNinja \
             ..
 
-      # Lista os alvos disponíveis para facilitar debug caso o alvo emucore tenha outro nome.
+      # Lista os alvos disponíveis para facilitar debug caso o nome mude no futuro.
       - name: Listar alvos do Ninja
         run: |
           cd build-android
           ninja -t targets | grep -i emu || true
           ninja -t targets | grep -i pcsx || true
+          ninja -t targets | grep -i ".so" || true
 
-      # Compila somente o alvo emucore, que deve gerar o arquivo libemucore.so.
+      # Compila o alvo correto encontrado nesse repositório.
       - name: Compilar libemucore.so
         run: |
           cd build-android
-          ninja -j$(nproc) emucore
+
+          if ninja -t targets | grep -q "^libemucore.so:"; then
+            ninja -j$(nproc) libemucore.so
+          elif ninja -t targets | grep -q "^emucore:"; then
+            ninja -j$(nproc) emucore
+          else
+            echo "Nenhum alvo emucore/libemucore.so encontrado."
+            echo "Alvos disponíveis:"
+            ninja -t targets | head -n 200
+            exit 1
+          fi
 
       # Procura o libemucore.so mesmo se o caminho final mudar dentro do repositório.
       - name: Localizar libemucore.so
