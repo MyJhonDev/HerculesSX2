@@ -18,7 +18,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 1
+          fetch-depth: 0
+
+      # Inicializa submódulos aninhados que o checkout recursivo pode ter deixado vazios.
+      - name: Inicializar submódulos faltando
+        run: |
+          git submodule update --init --recursive --depth=1
+          cd 3rdparty/cpuinfo && git submodule update --init --recursive
 
       # Reaproveita cache do Gradle e da pasta de build nativo para acelerar builds futuros.
       - name: Restaurar cache do build
