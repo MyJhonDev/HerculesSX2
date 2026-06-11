@@ -68,6 +68,25 @@ jobs:
           unzip -q android-ndk-r27c-linux.zip -d $HOME
           echo "ANDROID_NDK=$HOME/android-ndk-r27c" >> $GITHUB_ENV
 
+      # Corrige zlib antigo para compilar com Android NDK r27c.
+      - name: Corrigir zlib para Android NDK
+        run: |
+          for file in \
+            3rdparty/zlib/gzread.c \
+            3rdparty/zlib/gzwrite.c \
+            3rdparty/zlib/gzlib.c
+          do
+            if [ -f "$file" ]; then
+              if ! grep -q "#include <unistd.h>" "$file"; then
+                sed -i '1i #include <unistd.h>' "$file"
+              fi
+            fi
+          done
+
+          grep -n "unistd.h" 3rdparty/zlib/gzread.c || true
+          grep -n "unistd.h" 3rdparty/zlib/gzwrite.c || true
+          grep -n "unistd.h" 3rdparty/zlib/gzlib.c || true
+
       # Configura o CMake para compilar usando toolchain do Android e gerar binário arm64-v8a.
       - name: Configurar CMake Android
         run: |
